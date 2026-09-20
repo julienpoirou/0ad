@@ -169,7 +169,7 @@ jobs:
           sarif_file: trivy-image.sarif
           category: trivy-image
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: assets-game
           path: assets/
@@ -341,7 +341,7 @@ jobs:
           echo "with mods: $REF" > assets/digests-mods.txt
           cp mods.lock.json assets/mods.lock.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: assets-mods
           path: assets/
