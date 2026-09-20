@@ -38,7 +38,7 @@ jobs:
       IS_RELEASE: ${{ github.event_name == 'release' }}
       RELEASE_TAG: ${{ github.event.release.tag_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Version, tags and registries
         id: v
@@ -94,7 +94,7 @@ jobs:
       packages: write
       security-events: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: docker/setup-buildx-action@v3
 
@@ -194,7 +194,7 @@ jobs:
     env:
       MODS_0AD: ${{ github.workspace }}/mods
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Free disk space
         run: |
@@ -354,7 +354,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/download-artifact@v4
         with:
