@@ -1,0 +1,129 @@
+name: Watch mods
+
+on:
+  schedule:
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mods-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Compare the lockfile with mod.io
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract default.cfg from the published image
+        env:
+          REF: ghcr.io/${{ github.repository }}:latest
+        run: |
+          set -euo pipefail
+          docker pull -q "$REF"
+          id="$(docker create "$REF")"
+          docker cp "$id:/usr/share/games/0ad/config/default.cfg" default.cfg
+          docker rm -f "$id" >/dev/null
+          test -s default.cfg
+
+      - name: Snapshot the upstream catalogue
+        run: |
+          set -euo pipefail
+          cp mods.lock.json "$RUNNER_TEMP/old.json"
+          python3 scripts/download-mods-modio --cfg default.cfg --lock mods.lock.json
+          cp mods.lock.json "$RUNNER_TEMP/new.json"
+          cp "$RUNNER_TEMP/old.json" mods.lock.json
+          rm -f default.cfg
+
+      - name: List the differences
+        id: diff
+        run: |
+          set -euo pipefail
+          python3 scripts/lock-mods-diff \
+            --lock "$RUNNER_TEMP/old.json" \
+            --new "$RUNNER_TEMP/new.json" \
+            --list > "$RUNNER_TEMP/differences.tsv"
+
+          if [ ! -s "$RUNNER_TEMP/differences.tsv" ]; then
+            echo "The lockfile is up to date, nothing to propose."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+          python3 scripts/lock-mods-diff \
+            --lock "$RUNNER_TEMP/old.json" \
+            --new "$RUNNER_TEMP/new.json" \
+            --summary > "$RUNNER_TEMP/summary.md"
+          cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit one Conventional Commit per mod
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout -B chore/mods-update
+
+          while IFS=$'\t' read -r _type ident _name header; do
+            [ -n "$ident" ] || continue
+            python3 scripts/lock-mods-diff \
+              --lock mods.lock.json \
+              --new "$RUNNER_TEMP/new.json" \
+              --apply "$ident"
+            git add mods.lock.json
+            git commit -m "$header"
+          done < "$RUNNER_TEMP/differences.tsv"
+
+          cmp mods.lock.json "$RUNNER_TEMP/new.json"
+
+          git push --force origin chore/mods-update
+
+      - name: Open or update the pull request
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          {
+            echo "The mod.io catalogue has moved since \`mods.lock.json\` was written."
+            echo
+            cat "$RUNNER_TEMP/summary.md"
+            echo
+            echo "Merging this PR triggers \`publish.yml\`, which downloads the"
+            echo "pinned collection again and republishes the \`-mods\` variant."
+            echo
+            echo "Detection relies on \`modfile_id\` alone: the mod.io"
+            echo "\`version\` fields are not comparable with one another."
+          } > "$RUNNER_TEMP/body.md"
+
+          if gh pr view chore/mods-update --json number >/dev/null 2>&1; then
+            gh pr edit chore/mods-update \
+              --title 'feat(mods): update the collection' \
+              --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr create \
+              --base main --head chore/mods-update \
+              --title 'feat(mods): update the collection' \
+              --body-file "$RUNNER_TEMP/body.md" \
+              --label mods
+          fi

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":disableDependencyDashboard"
+  ],
+  "enabledManagers": [
+    "github-actions",
+    "dockerfile"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "prHourlyLimit": 5,
+  "prConcurrentLimit": 10,
+  "semanticCommits": "enabled",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "packageRules": [
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "GitHub Actions (minor/patch)",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ],
+      "addLabels": [
+        "github-actions"
+      ],
+      "automerge": true
+    },
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "GitHub Actions (major)",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "addLabels": [
+        "github-actions"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "The base image includes the Selkies stack and s6-overlay. Ubuntu-version changes must be reviewed manually.",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "addLabels": [
+        "docker"
+      ],
+      "automerge": false
+    }
+  ]
+}

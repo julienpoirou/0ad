@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+          config: .hadolint.yaml
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Shellcheck
+        run: |
+          shellcheck --shell=bash --severity=warning \
+            root/custom-cont-init.d/20-mods-0ad \
+            root/defaults/autostart
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Ruff
+        run: |
+          pip install --quiet ruff
+          ruff check --isolated --select E,F,W \
+            scripts/download-mods-modio \
+            scripts/normalize-mods-0ad \
+            scripts/generate-vendored \
+            scripts/lock-mods-diff
+
+      - name: Install Trivy
+        run: |
+          set -euo pipefail
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
+          trivy --version
+
+      - name: Trivy (filesystem)
+        run: |
+          set -euo pipefail
+          trivy fs . \
+            --scanners vuln,secret,misconfig \
+            --format sarif \
+            --output trivy-fs.sarif \
+            --exit-code 0
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+  build-smoke:
+    name: Build and smoke test (mod-free)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the mod-free image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: game
+          load: true
+          tags: 0ad:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=ci
+            GIT_REVISION=${{ github.sha }}
+
+      - name: Start the container
+        run: |
+          set -euo pipefail
+          docker run -d --name 0ad-ci --shm-size=1g -p 3000:3000 0ad:ci
+
+      - name: Wait for the web interface
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://127.0.0.1:3000/; then
+              echo "Available interface"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "The interface did not respond within 300 seconds" >&2
+          exit 1
+
+      - name: Check the game is installed
+        run: |
+          set -euo pipefail
+          available="$(awk 'NR==1{print $1}' GAME_VERSION)"
+          instaled="$(docker exec 0ad-ci dpkg-query -W -f='${Version}' 0ad)"
+          echo "GAME_VERSION=$available  paquet=$instaled"
+          case "$instaled" in
+            "$available"-*|"$available") ;;
+            *) echo "The PPA is not yet in use 0 A.D. $available" >&2; exit 1 ;;
+          esac
+          docker exec 0ad-ci test -x /usr/games/0ad
+          docker exec 0ad-ci test -x /defaults/autostart
+          docker exec 0ad-ci test -L /defaults/autostart_wayland
+          docker exec 0ad-ci /lsiopy/bin/python3 -c 'import distro'
+
+
+      - name: Check the mod-free variant ships no mod
+        run: |
+          set -euo pipefail
+          extras="$(docker exec 0ad-ci sh -c \
+            'ls -A /usr/share/games/0ad/mods 2>/dev/null' \
+            | grep -vx -e mod -e public || true)"
+          if [ -n "$extras" ]; then
+            echo "unexpected mods in the lightweight version:" >&2
+            echo "$extras" >&2
+            exit 1
+          fi
+
+      - name: Check the game and Selkies services started
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 30); do
+            if docker exec 0ad-ci pgrep -f '/usr/games/pyrogenesis' >/dev/null \
+              && docker exec 0ad-ci pgrep -f '/lsiopy/bin/selkies' >/dev/null; then
+              break
+            fi
+            sleep 5
+          done
+          docker exec 0ad-ci pgrep -f '/usr/games/pyrogenesis'
+          docker exec 0ad-ci pgrep -f '/lsiopy/bin/selkies'
+          docker exec 0ad-ci grep -q 'user.cfg initialised from user-low.cfg' /config/0ad-launcher.log
+
+
+      - name: Container logs
+        if: always()
+        run: docker logs 0ad-ci || true
+
+      - name: Stop the container
+        if: always()
+        run: docker rm -f 0ad-ci || true

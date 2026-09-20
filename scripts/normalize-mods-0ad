@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""Put mods dropped in the shared directory into the shape 0 A.D. expects.
+
+0 A.D. looks for its mods under ~/.local/share/0ad/mods/ and recognises a
+single shape: one DIRECTORY per mod, holding a "mod.json" and, next to it,
+the data (either loose or in an archive). That is exactly how the base game
+is laid out:
+
+    mods/public/mod.json
+    mods/public/public.zip
+
+What gets downloaded from mod.io or from the forum, however, is a single
+".pyromod" or ".zip" file. Dropped as is into the directory, it is ignored
+without a single message -- the mod simply never shows up in the list.
+
+This script does the conversion when the container starts, so that
+"drop the downloaded file into mods/" is enough. It handles the two
+packagings found in the wild:
+
+  * archive whose mod.json sits at the root
+        -> mods/<name>/mod.json + mods/<name>/<name>.zip
+  * archive holding a single directory that carries the mod.json
+        -> extracted directly, that directory becomes the mod
+
+It is idempotent: a mod that is already in place is left alone, and an
+archive that has already been handled is not handled twice.
+"""
+
+import json
+import os
+import shutil
+import sys
+import zipfile
+
+MODS = os.environ.get("MODS_0AD", "/config/.local/share/0ad/mods")
+ARCHIVES = (".pyromod", ".zip")
+
+
+def log(message):
+    print("[mods] " + message, flush=True)
+
+
+def mod_root(zf):
+    """Returns ('root', None) or ('folder', name) or (None, None)."""
+    names = zf.namelist()
+    if "mod.json" in names:
+        return "root", None
+    # A single top-level directory that holds the mod.json?
+    tops = {n.split("/", 1)[0] for n in names if "/" in n}
+    if len(tops) == 1:
+        only = tops.pop()
+        if only + "/mod.json" in names:
+            return "folder", only
+    return None, None
+
+
+def declared_name(zf, json_path, fallback):
+    """The mod.json "name" wins: it is the key dependencies refer to."""
+    try:
+        data = json.loads(zf.read(json_path).decode("utf-8", "replace"))
+        name = str(data.get("name", "")).strip()
+        # The name is used as a directory name: refuse anything that would
+        # escape the mods directory.
+        if name and "/" not in name and "\\" not in name and name not in (".", ".."):
+            return name
+    except Exception as error:
+        log("unreadable mod.json in %s (%s), keeping \"%s\""
+            % (os.path.basename(zf.filename), error, fallback))
+    return fallback
+
+
+def handle(archive):
+    base = os.path.basename(archive)
+    fallback = os.path.splitext(base)[0]
+
+    # Read everything that is needed, THEN close: moving or deleting an
+    # archive that is still open fails on Windows, and is not clean anywhere
+    # else either.
+    try:
+        with zipfile.ZipFile(archive) as zf:
+            shape, folder = mod_root(zf)
+            if shape is None:
+                log("\"%s\" holds no mod.json, skipped "
+                    "(it is probably not a 0 A.D. mod)" % base)
+                return
+            if shape == "root":
+                name = declared_name(zf, "mod.json", fallback)
+                manifest = zf.read("mod.json")
+            else:
+                name = declared_name(zf, folder + "/mod.json", folder)
+                manifest = None
+                target = os.path.join(MODS, folder)
+                if os.path.isdir(target):
+                    log("\"%s\" is already installed, archive left aside"
+                        % folder)
+                    return
+                # extractall is given the mods directory alone: the paths
+                # have already been validated by mod_root (a single top
+                # level, no escaping).
+                zf.extractall(MODS)
+    except zipfile.BadZipFile:
+        log("\"%s\" is not a valid archive, skipped" % base)
+        return
+
+    if shape == "folder":
+        os.remove(archive)
+        log("\"%s\" installed (archive extracted)" % name)
+        return
+
+    target = os.path.join(MODS, name)
+    if os.path.isdir(target):
+        log("\"%s\" is already installed, archive left aside" % name)
+        return
+    os.makedirs(target)
+    # The mod.json is copied next to the archive, the way the base game does
+    # it: the engine reads the manifest without opening the zip.
+    with open(os.path.join(target, "mod.json"), "wb") as out:
+        out.write(manifest)
+    shutil.move(archive, os.path.join(target, name + ".zip"))
+    log("\"%s\" installed (archive filed as %s.zip)" % (name, name))
+
+
+def main():
+    if not os.path.isdir(MODS):
+        return 0
+    for entry in sorted(os.listdir(MODS)):
+        path = os.path.join(MODS, entry)
+        if os.path.isfile(path) and entry.lower().endswith(ARCHIVES):
+            handle(path)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

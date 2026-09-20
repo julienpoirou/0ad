@@ -1,0 +1,245 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Regenerate the VENDORED.md table from the mods actually installed.
+
+VENDORED.md states what the image ships: a file, an origin, a version, a
+licence, a digest. All of that except the licence can be derived from the
+mods directory -- which is what this script does, so that the table stops
+drifting silently from the collection.
+
+The "License" column cannot be derived: it comes from reading the licence
+file bundled in each archive, done by hand, and the mod.io API carries no
+licence metadata whatsoever. It is therefore CARRIED OVER from the existing
+table, row by row, joined on the "File" column. A newly added mod arrives
+with an em dash and calls for a human read.
+
+Two storage shapes coexist, and the digest does not mean the same thing:
+
+  * a directory holding an archive -> SHA-256 of the archive
+  * a directory holding the tree itself (4 mods, whose upstream archive
+    already carried a root directory) -> tree digest:
+
+        sha256( sum of  relative_path + NUL + sha256_of_file + NUL )
+
+    over every file, in sorted path order. It is the digest of no single
+    file: "sha256sum" does not reproduce it.
+
+Usage:
+    generate-vendored [--check]
+
+    --check   writes nothing; exits 1 if the table is stale.
+              This is the form used in continuous integration.
+"""
+import argparse
+import hashlib
+import io
+import json
+import os
+import re
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODS = os.environ.get("MODS_0AD", os.path.join(ROOT, "mods"))
+VENDORED = os.path.join(ROOT, "VENDORED.md")
+
+# The base game, shipped by the "0ad-data" package, is not a third-party
+# mod: .dockerignore already keeps it out of the image.
+NOT_MODS = {"mod", "public", "user"}
+
+HEADER = "| File | Mod | Version | License | SHA-256 |"
+ROW = re.compile(
+    r"^\| `([^`]+)` \| (.+?) \| (\S+) \| (.+?) \| `([0-9a-f]{64})` \|$")
+COUNT = re.compile(r"^\d+ mods, [\d.]+ GiB\.")
+
+# Past that, the label is cut: a table is read at a glance, it is not
+# scrolled sideways.
+LABEL_WIDTH = 57
+
+
+def log(message):
+    print("[vendored] " + message, flush=True)
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def sha256_tree(root):
+    """Digest of a mod stored as a tree (see the module header)."""
+    records = []
+    for base, folders, names in os.walk(root):
+        folders.sort()
+        for name in names:
+            path = os.path.join(base, name)
+            rel = os.path.relpath(path, root).replace(os.sep, "/")
+            records.append((rel, sha256_file(path)))
+    records.sort()
+
+    digest = hashlib.sha256()
+    for rel, checksum in records:
+        digest.update((rel + "\0" + checksum + "\0").encode("utf-8"))
+    return digest.hexdigest()
+
+
+def manifest(folder):
+    """The mod's mod.json, or an empty dictionary if it is unreadable."""
+    path = os.path.join(folder, "mod.json")
+    try:
+        with io.open(path, encoding="utf-8", errors="replace") as handle:
+            return json.load(handle)
+    except (IOError, ValueError) as problem:
+        log("unreadable mod.json in %s (%s)"
+            % (os.path.basename(folder), problem))
+        return {}
+
+
+def label(meta, fallback):
+    text = str(meta.get("label") or meta.get("name") or fallback).strip()
+    text = " ".join(text.split())            # multi-line labels do exist
+    if len(text) > LABEL_WIDTH:
+        text = text[:LABEL_WIDTH].rstrip() + "…"
+    return text.replace("|", "\\|")
+
+
+def mod_cell(meta, fallback):
+    text = label(meta, fallback)
+    url = str(meta.get("url") or "").strip()
+    # 34 of the 89 mods declare no usable URL: "none", "play0ad.com" or
+    # "github.com/..." without a scheme. The cell then stays plain text,
+    # as in the hand-reviewed table.
+    if url.startswith(("http://", "https://")) and " " not in url and ")" not in url:
+        return "[%s](%s)" % (text, url)
+    return text
+
+
+def size(path):
+    total = 0
+    for base, _, names in os.walk(path):
+        for name in names:
+            try:
+                total += os.path.getsize(os.path.join(base, name))
+            except OSError:
+                pass
+    return total
+
+
+def inventory():
+    """One entry per installed third-party mod, sorted by folder name."""
+    entries = []
+    for name in sorted(os.listdir(MODS), key=lambda item: item.lower()):
+        path = os.path.join(MODS, name)
+        if name.startswith(".") or name in NOT_MODS or not os.path.isdir(path):
+            continue
+
+        meta = manifest(path)
+        archive = os.path.join(path, name + ".zip")
+        if os.path.isfile(archive):
+            filename = "%s/%s.zip" % (name, name)
+            checksum = sha256_file(archive)
+        else:
+            # The directory IS the mod: its digest covers the whole tree.
+            filename = name + "/"
+            checksum = sha256_tree(path)
+
+        entries.append({
+            "folder": name,
+            "file": filename,
+            "mod": mod_cell(meta, name),
+            "version": str(meta.get("version") or "—").strip() or "—",
+            "sha256": checksum,
+            "bytes": size(path),
+        })
+    return entries
+
+
+def bounds(lines):
+    """(start, end) of the table's data rows, end excluded."""
+    try:
+        start = lines.index(HEADER) + 2
+    except ValueError:
+        raise SystemExit("[vendored] table header not found in %s" % VENDORED)
+    end = start
+    while end < len(lines) and ROW.match(lines[end]):
+        end += 1
+    return start, end
+
+
+def licences(lines, start, end):
+    """The "License" column of the table in place, joined on "File"."""
+    known = {}
+    for line in lines[start:end]:
+        found = ROW.match(line)
+        if found:
+            known[found.group(1)] = found.group(4)
+    return known
+
+
+def render(entries, known):
+    lines, unseen = [], []
+    for entry in entries:
+        licence = known.get(entry["file"])
+        if licence is None:
+            licence = "—"
+            unseen.append(entry["folder"])
+        lines.append("| `%s` | %s | %s | %s | `%s` |"
+                     % (entry["file"], entry["mod"], entry["version"],
+                        licence, entry["sha256"]))
+    return lines, unseen
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(
+        prog="generate-vendored",
+        description="Regenerate the VENDORED.md table.")
+    parser.add_argument("--check", action="store_true",
+                        help="writes nothing; exits 1 if it is stale")
+    options = parser.parse_args(argv[1:])
+
+    if not os.path.isdir(MODS):
+        raise SystemExit("[vendored] mods directory not found: %s" % MODS)
+
+    with io.open(VENDORED, encoding="utf-8", newline="") as handle:
+        content = handle.read()
+    lines = content.split("\n")
+
+    start, end = bounds(lines)
+    entries = inventory()
+    rendered, unseen = render(entries, licences(lines, start, end))
+
+    if not entries:
+        raise SystemExit("[vendored] no mod in %s -- collection missing?"
+                         % MODS)
+
+    total = sum(entry["bytes"] for entry in entries)
+    summary = "%d mods, %.2f GiB." % (len(entries), total / 1024.0 ** 3)
+    updated = lines[:start] + rendered + lines[end:]
+    for index, line in enumerate(updated):
+        if COUNT.match(line):
+            updated[index] = COUNT.sub(summary, line)
+            break
+
+    for folder in unseen:
+        log("new mod with no reviewed licence: %s" % folder)
+
+    expected = "\n".join(updated)
+    if expected == content:
+        log("up to date: %s" % summary)
+        return 0
+
+    if options.check:
+        log("STALE: %s no longer matches %s" % (VENDORED, MODS))
+        log("run \"scripts/generate-vendored\" to bring it up to date")
+        return 1
+
+    with io.open(VENDORED, "w", encoding="utf-8", newline="") as handle:
+        handle.write(expected)
+    log("rewritten: %s" % summary)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

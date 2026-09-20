@@ -1,0 +1,4 @@
+Ensures that the ‘mods’ directory is
+never empty as far as Docker is concerned.
+
+Do not delete it!

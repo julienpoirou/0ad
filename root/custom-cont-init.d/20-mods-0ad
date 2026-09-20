@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Prepare the writable mods directory.
+
+set -eu
+
+data=/config/.local/share/0ad
+mods="$data/mods"
+
+mkdir -p "$mods/user"
+
+chown abc:abc /config/.local /config/.local/share "$data" 2>/dev/null || true
+chown -R abc:abc "$mods" 2>/dev/null || true

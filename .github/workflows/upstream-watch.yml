@@ -1,0 +1,110 @@
+name: Watch upstream
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Compare GAME_VERSION with the upstream release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the latest upstream release
+        id: upstream
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 \
+            'https://gitea.wildfiregames.com/api/v1/repos/0ad/0ad/releases?limit=20' \
+            > "$RUNNER_TEMP/releases.json"
+
+          tag="$(jq -r '
+            [ .[]
+              | select(.draft == false and .prerelease == false)
+              | .tag_name
+              | select(test("-(rc|alpha|beta|pre)") | not) ]
+            | .[0] // empty' "$RUNNER_TEMP/releases.json")"
+          [ -n "$tag" ] || { echo "No stable release found" >&2; exit 1; }
+
+          name="$(jq -r --arg t "$tag" '
+            .[] | select(.tag_name == $t) | .name // ""' \
+            "$RUNNER_TEMP/releases.json")"
+
+          upstream="${tag#v}"
+          current="$(awk 'NR==1{print $1}' GAME_VERSION)"
+
+          {
+            echo "upstream=$upstream"
+            echo "current=$current"
+            echo "name=$name"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$upstream" = "$current" ]; then
+            echo "up to date: 0 A.D. $current"
+            echo "new=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          most_recent="$(printf '%s\n%s\n' "$current" "$upstream" \
+            | sort -V | tail -1)"
+          if [ "$most_recent" != "$upstream" ]; then
+            echo "::warning::upstream specifies $upstream, which precedes $current, ignored."
+            echo "new=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "new=true" >> "$GITHUB_OUTPUT"
+          echo "0 A.D. $upstream has been released (here: $current)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bump GAME_VERSION
+        if: steps.upstream.outputs.new == 'true'
+        env:
+          UPSTREAM: ${{ steps.upstream.outputs.upstream }}
+        run: |
+          set -euo pipefail
+          printf '%s # x-release-please-version\n' "$UPSTREAM" > GAME_VERSION
+
+      - name: Open a pull request
+        if: steps.upstream.outputs.new == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: chore/upstream-${{ steps.upstream.outputs.upstream }}
+          base: main
+          commit-message: |
+            feat: 0 A.D. ${{ steps.upstream.outputs.upstream }}
+
+            Release-As: ${{ steps.upstream.outputs.upstream }}
+          title: 'feat: 0 A.D. ${{ steps.upstream.outputs.upstream }}'
+          body: |
+            Wildfire Games published **0 A.D. ${{ steps.upstream.outputs.upstream }}**
+            (`${{ steps.upstream.outputs.name }}`).
+
+            Merging this PR does two things, in this order:
+
+            1. `release-please` stop Release `v${{ steps.upstream.outputs.upstream }}`,
+               along with the entire changelog accumulated since then
+               `${{ steps.upstream.outputs.current }}`, including mods.
+            2. `publish.yml` republishes the two versions under the tags for this
+               version.
+
+            The package comes from the PPA `ppa:wfg/0ad`, which follows
+            the upstream: no version is pinned in the `Dockerfile`. Before
+            merging, verify that the PPA has indeed released the new version for
+            Ubuntu Noble.
+
+            Source: <https://gitea.wildfiregames.com/0ad/0ad/releases>
+          labels: upstream
+          add-paths: GAME_VERSION

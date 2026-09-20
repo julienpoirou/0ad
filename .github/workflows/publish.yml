@@ -1,0 +1,378 @@
+name: Publish
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Dockerfile'
+      - 'root/**'
+      - 'mods.lock.json'
+      - 'GAME_VERSION'
+  release:
+    types: [ published ]
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      minor: ${{ steps.v.outputs.minor }}
+      date: ${{ steps.v.outputs.date }}
+      built: ${{ steps.v.outputs.built }}
+      images: ${{ steps.v.outputs.images }}
+      dockerhub: ${{ steps.v.outputs.dockerhub }}
+    env:
+      HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_TOKEN != '' && secrets.DOCKERHUB_USERNAME != '' }}
+      IS_RELEASE: ${{ github.event_name == 'release' }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version, tags and registries
+        id: v
+        run: |
+          set -euo pipefail
+
+          if [ "$IS_RELEASE" = "true" ]; then
+            version="${RELEASE_TAG#v}"
+          else
+            version="$(awk 'NR==1{print $1}' GAME_VERSION)"
+          fi
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "unexpected version: $version" >&2; exit 1 ;;
+          esac
+
+          minor="${version%.*}"
+          date="$(date -u +%Y%m%d-%H%M)"
+          built="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          images="ghcr.io/${GITHUB_REPOSITORY}"
+          if [ "$HAS_DOCKERHUB" = "true" ]; then
+            images="$(printf '%s\ndocker.io/%s/0ad' "$images" "$GITHUB_REPOSITORY_OWNER")"
+          else
+            echo "::warning::DOCKERHUB_USERNAME/DOCKERHUB_TOKEN absent, GHCR publication only."
+          fi
+
+          {
+            echo "version=$version"
+            echo "minor=$minor"
+            echo "date=$date"
+            echo "built=$built"
+            echo "dockerhub=$HAS_DOCKERHUB"
+            echo "images<<END"
+            echo "$images"
+            echo "END"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Publication $version"
+            echo
+            echo '```'
+            echo "$images"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  game:
+    name: Mod-free image
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: needs.version.outputs.dockerhub == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ needs.version.outputs.images }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ needs.version.outputs.version }}
+            type=raw,value=${{ needs.version.outputs.minor }}
+            type=raw,value=latest
+            type=raw,value=${{ needs.version.outputs.version }}-${{ needs.version.outputs.date }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: game
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+          build-args: |
+            VERSION=${{ needs.version.outputs.version }}
+            BUILD_DATE=${{ needs.version.outputs.built }}
+            GIT_REVISION=${{ github.sha }}
+
+      - name: Install Trivy
+        run: |
+          set -euo pipefail
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
+
+      - name: Scan and describe the published image
+        env:
+          REF: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          trivy image "$REF" --format sarif --output trivy-image.sarif --exit-code 0
+          trivy image "$REF" --format table --output assets/trivy-image.txt --exit-code 0
+          trivy image "$REF" --format spdx-json --output assets/sbom.spdx.json --exit-code 0
+          {
+            echo "Persistent references for published images"
+            echo
+            echo "without mods: $REF"
+          } > assets/digests.txt
+
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: assets-game
+          path: assets/
+
+      - name: Sync the Docker Hub description
+        if: needs.version.outputs.dockerhub == 'true' && github.event_name != 'schedule'
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ github.repository_owner }}/0ad
+          readme-filepath: ./README.md
+
+  mods:
+    name: Image with the full mod collection
+    needs: [ version, game ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      pull-requests: write
+    env:
+      MODS_0AD: ${{ github.workspace }}/mods
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost /usr/local/share/powershell \
+                      /usr/local/lib/node_modules "${AGENT_TOOLSDIRECTORY:-/opt/hostedtoolcache}"
+          sudo apt-get clean
+          df -h /
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract default.cfg from the published image
+        env:
+          REF: ghcr.io/${{ github.repository }}:${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          docker pull -q "$REF"
+          id="$(docker create "$REF")"
+          docker cp "$id:/usr/share/games/0ad/config/default.cfg" default.cfg
+          docker rm -f "$id" >/dev/null
+          docker rmi -f "$REF" >/dev/null || true
+          test -s default.cfg
+
+      - name: Download the pinned mods
+        run: |
+          set -euo pipefail
+          python3 scripts/download-mods-modio \
+            --cfg default.cfg --from-lock mods.lock.json
+
+      - name: Normalise the archives
+        run: |
+          set -euo pipefail
+          python3 scripts/normalize-mods-0ad
+
+      - name: Check the collection against the lockfile
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, sys
+
+          mods = os.environ["MODS_0AD"]
+          expected = json.load(open("mods.lock.json", encoding="utf-8"))["mods"]
+          presents = sorted(
+              n for n in os.listdir(mods)
+              if os.path.isdir(os.path.join(mods, n))
+              and n not in ("mod", "public", "user") and not n.startswith("."))
+
+          no_manifesto = [n for n in presents
+                            if not os.path.isfile(os.path.join(mods, n, "mod.json"))]
+          if no_manifesto:
+              sys.exit("without mod.json: %s" % no_manifesto)
+          if len(presents) != len(expected):
+              sys.exit("%d installed mods, %d pinned by the lock"
+                       % (len(presents), len(expected)))
+          print("%d mods that are compatible with the lock" % len(presents))
+          PY
+
+      - name: Refresh VENDORED.md
+        id: vendored
+        run: |
+          set -euo pipefail
+          python3 scripts/generate-vendored
+          if git diff --quiet -- VENDORED.md; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff --stat -- VENDORED.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Open a pull request for VENDORED.md
+        if: steps.vendored.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: chore/vendored-sync
+          base: main
+          commit-message: 'docs: synchronize VENDORED.md with the published collection'
+          title: 'docs: synchronize VENDORED.md with the published collection'
+          body: |
+            The table of sources no longer matched the archives
+            actually downloaded from `mods.lock.json`.
+
+            Regenerated by `scripts/generate-vendored`. The column **License**
+            is included as-is: it cannot be derived from the files
+            and remains a human interpretation.
+          labels: mods
+          add-paths: VENDORED.md
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: needs.version.outputs.dockerhub == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ needs.version.outputs.images }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=${{ needs.version.outputs.version }}-mods
+            type=raw,value=${{ needs.version.outputs.minor }}-mods
+            type=raw,value=latest-mods
+            type=raw,value=${{ needs.version.outputs.version }}-mods-${{ needs.version.outputs.date }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: mods
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          provenance: true
+          sbom: true
+          build-args: |
+            VERSION=${{ needs.version.outputs.version }}
+            BUILD_DATE=${{ needs.version.outputs.built }}
+            GIT_REVISION=${{ github.sha }}
+
+      - name: Record the digest
+        env:
+          REF: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          echo "with mods: $REF" > assets/digests-mods.txt
+          cp mods.lock.json assets/mods.lock.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: assets-mods
+          path: assets/
+
+  release-assets:
+    name: Attach assets to the release
+    if: github.event_name == 'release'
+    needs: [ version, game, mods ]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Attach
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          cat assets/digests.txt assets/digests-mods.txt > assets/references.txt
+          rm -f assets/digests.txt assets/digests-mods.txt
+          ls -l assets
+          gh release upload "$TAG" \
+            assets/references.txt \
+            assets/sbom.spdx.json \
+            assets/trivy-image.txt \
+            assets/mods.lock.json \
+            --clobber

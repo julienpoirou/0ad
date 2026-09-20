@@ -1,0 +1,16 @@
+# Game profile
+profil/
+
+# The mod collection
+mods/*
+!mods/.gardien
+
+# Extracted from the published image by the CI workflows, never committed:
+# it is the game's own configuration file, our only source for the mod.io
+# endpoint and public API key
+default.cfg
+
+# Caches for development tools
+.ruff_cache/
+__pycache__/
+*.py[co]

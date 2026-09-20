@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# Pick a GPU renderer, seed the profile, keep the game running
+
+set -u
+
+LOG="$HOME/0ad-launcher.log"
+exec >>"$LOG" 2>&1
+echo
+echo "=== $(date -Is) -- launcher starting ==="
+
+# Force the Mesa d3d12 adapter by name on multi-GPU WSL. ZEROAD_GPU=auto|<name>|default
+pick_adapter() {
+    local wanted="${ZEROAD_GPU:-auto}" name=""
+
+    case "$wanted" in
+        default)
+            unset MESA_D3D12_DEFAULT_ADAPTER_NAME
+            echo "adapter: no instruction (ZEROAD_GPU=$wanted)"
+            return ;;
+        auto|"") ;;
+        *)
+            export MESA_D3D12_DEFAULT_ADAPTER_NAME="$wanted"
+            echo "adapter requested: \"$wanted\" (ZEROAD_GPU)"
+            return ;;
+    esac
+
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        name="$(timeout 10 nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null |
+                head -1 | sed 's/[[:space:]]*$//')"
+    fi
+
+    if [ -n "$name" ]; then
+        export MESA_D3D12_DEFAULT_ADAPTER_NAME="$name"
+        echo "adapter requested: \"$name\" (announced by the NVIDIA toolkit)"
+    else
+        unset MESA_D3D12_DEFAULT_ADAPTER_NAME
+        echo "adapter: no instruction (no NVIDIA toolkit, Mesa default)"
+    fi
+}
+
+# WSL accelerated path, OpenGL translated to Direct3D 12 through /dev/dxg
+use_d3d12() {
+    export LD_LIBRARY_PATH="/usr/lib/wsl/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    export MESA_LOADER_DRIVER_OVERRIDE=d3d12
+    export GALLIUM_DRIVER=d3d12
+    export LIBGL_KOPPER_DRI2=1
+    unset LIBGL_ALWAYS_SOFTWARE
+    pick_adapter
+}
+
+# NVIDIA GPU exposed natively to the container (--gpus all), OpenGL on Vulkan
+use_zink() {
+    export MESA_LOADER_DRIVER_OVERRIDE=zink
+    export GALLIUM_DRIVER=zink
+    export LIBGL_KOPPER_DRI2=1
+    unset LIBGL_ALWAYS_SOFTWARE
+}
+
+# native Linux card via /dev/dri. Force nothing, just lift any software rendering
+use_dri() {
+    unset LIBGL_ALWAYS_SOFTWARE MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER
+    unset MESA_D3D12_DEFAULT_ADAPTER_NAME
+    export LIBGL_KOPPER_DRI2=1
+}
+
+# CPU software rendering, always available
+use_llvmpipe() {
+    export LIBGL_ALWAYS_SOFTWARE=1
+    export GALLIUM_DRIVER=llvmpipe
+    unset MESA_LOADER_DRIVER_OVERRIDE LIBGL_KOPPER_DRI2
+    export LP_NUM_THREADS="${LP_NUM_THREADS:-$(nproc)}"
+}
+
+# True only if the NVIDIA Vulkan ICD is really present, not just nvidia-smi
+nvidia_vulkan_available() {
+    command -v nvidia-smi >/dev/null 2>&1 || return 1
+    nvidia-smi -L >/dev/null 2>&1 || return 1
+    ls /usr/share/vulkan/icd.d/nvidia_icd*.json >/dev/null 2>&1
+}
+
+# Report the OpenGL renderer actually obtained, empty if no GL context opens
+gl_probe() {
+    timeout 30 glxinfo -B 2>/dev/null | sed -n 's/^OpenGL renderer string: //p' | head -1
+}
+
+# Choose the driver from what is exposed. ZEROAD_RENDERER=auto|software|d3d12
+pick_renderer() {
+    local choice="${ZEROAD_RENDERER:-auto}" renderer
+
+    if [ "$choice" = "software" ]; then
+        use_llvmpipe
+    elif [ "$choice" = "d3d12" ]; then
+        use_d3d12
+    elif nvidia_vulkan_available; then
+        use_zink
+    elif [ -e /dev/dxg ] && [ -e /usr/lib/wsl/lib/libd3d12core.so ]; then
+        use_d3d12
+    elif ls /dev/dri/renderD* >/dev/null 2>&1; then
+        use_dri
+    else
+        # Explain which mount/flag is missing before the game crawls on the CPU
+        if [ -e /dev/dxg ] && [ ! -e /usr/lib/wsl/lib/libd3d12core.so ]; then
+            echo "WARNING: /dev/dxg is present but /usr/lib/wsl is missing."
+            echo "  Without it the d3d12 driver has no libd3d12core.so and"
+            echo "  rendering falls back to the CPU. Add to the command:"
+            echo "      -v /usr/lib/wsl:/usr/lib/wsl:ro"
+        elif command -v nvidia-smi >/dev/null 2>&1; then
+            echo "WARNING: an NVIDIA card is exposed (--gpus all) but no"
+            echo "  rendering path is usable."
+            echo "  Under Docker Desktop/WSL2, you ALSO need:"
+            echo "      --device /dev/dxg -v /usr/lib/wsl:/usr/lib/wsl:ro"
+            echo "  On a native Linux host, the NVIDIA Vulkan ICD is missing:"
+            echo "      -e NVIDIA_DRIVER_CAPABILITIES=all"
+        else
+            echo "WARNING: no GPU exposed to the container, software rendering."
+            echo "  On a native Linux host:     --device /dev/dri"
+            echo "  Under Docker Desktop/WSL2:  --device /dev/dxg"
+            echo "                              -v /usr/lib/wsl:/usr/lib/wsl:ro"
+        fi
+        use_llvmpipe
+    fi
+
+    renderer="$(gl_probe)"
+    if [ -z "$renderer" ] && [ "${LIBGL_ALWAYS_SOFTWARE:-}" != "1" ]; then
+        echo "accelerated driver unusable -- falling back to software rendering"
+        use_llvmpipe
+        renderer="$(gl_probe)"
+    fi
+    echo "OpenGL renderer: ${renderer:-unknown}"
+}
+
+# First run only, seed user.cfg (high on GPU, low on CPU) with windowed=true so labwc keeps it fit to the live output
+bootstrap_profile() {
+    local cfg_dir="$HOME/.config/0ad/config" src
+    mkdir -p "$cfg_dir"
+    [ -f "$cfg_dir/user.cfg" ] && return
+
+    if [ "${LIBGL_ALWAYS_SOFTWARE:-}" = "1" ]; then
+        src=/defaults/user-low.cfg
+    else
+        src=/defaults/user-high.cfg
+    fi
+    cp "$src" "$cfg_dir/user.cfg"
+    echo "user.cfg initialised from $(basename "$src")"
+}
+
+pick_renderer
+bootstrap_profile
+
+# Relaunch the game if it quits, so the browser tab never shows an empty desktop
+while true; do
+    echo "--- launching 0ad at $(date -Is) ---"
+    /usr/games/0ad
+    echo "--- 0ad exited (code $?) ---"
+    sleep 3
+done

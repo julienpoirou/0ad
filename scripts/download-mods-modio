@@ -1,0 +1,369 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Download the 0 A.D. mod.io catalogue into the mods directory.
+
+This is exactly the channel the game's own downloader uses: the endpoint,
+the public key and the game id are read from the configuration shipped with
+0 A.D. (the "[modio.v1]" section of default.cfg) rather than copied here --
+if a game update changes them, this tool follows.
+
+The script is replayable. A mod that is already installed is skipped, and an
+archive whose MD5 digest does not match is discarded rather than kept: a
+network failure is recovered by running the command again.
+
+Archives land flat in the mods directory; "normalize-mods-0ad" then puts
+them into the shape the game expects.
+
+Usage:
+    download-mods-modio [--list]
+    download-mods-modio --lock PATH
+    download-mods-modio --from-lock PATH
+
+    --list             show what would be downloaded, without writing.
+    --lock PATH        write the state of the upstream catalogue to a JSON
+                       lockfile, without downloading anything. That file,
+                       once committed, is what makes an updated mod
+                       detectable: the local ledger keeps no version.
+    --from-lock PATH   download exactly what the lockfile pins. If upstream
+                       has moved since, stop rather than bring back a file
+                       that differs from the promised one.
+    --cfg PATH         default.cfg to read (defaults to the image's own).
+
+The lockfile and the ledger do not play the same role: the lockfile says
+what we WANT (it is committed, it reads the same on every machine), the
+ledger says what we HAVE (it is local, excluded from git and from the image).
+"""
+import argparse
+import hashlib
+import json
+import os
+import re
+import sys
+import time
+import urllib.request
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
+
+DEFAULT_CFG = "/usr/share/games/0ad/config/default.cfg"
+MODS = os.environ.get("MODS_0AD", "/config/.local/share/0ad/mods")
+LEDGER = os.path.join(MODS, ".modio.json")
+# mod.io answers 403 on urllib's default user agent.
+HEADERS = {"User-Agent": "curl/8.5.0", "Accept": "application/json"}
+PARALLEL = 4
+
+
+def log(message):
+    print("[modio] " + message, flush=True)
+
+
+def settings(path=DEFAULT_CFG):
+    """Endpoint, key and game id, read from the game's own configuration."""
+    values = {}
+    section = None
+    with open(path, encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            line = line.split(";", 1)[0].strip()
+            if line.startswith("[") and line.endswith("]"):
+                section = line[1:-1]
+                continue
+            if section != "modio.v1" or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            values[key.strip()] = value.strip().strip('"')
+
+    missing = {"baseurl", "api_key"} - set(values)
+    if missing:
+        raise SystemExit("[modio] %s: incomplete [modio.v1] section (%s)"
+                         % (path, ", ".join(sorted(missing))))
+
+    # The numeric game id is carried by the subdomain ("g-5").
+    game = re.search(r"//g-(\d+)\.", values["baseurl"])
+    if not game:
+        raise SystemExit("[modio] unreadable game id in baseurl")
+    return values["baseurl"], values["api_key"], game.group(1)
+
+
+def open_url(url):
+    return urllib.request.urlopen(
+        urllib.request.Request(url, headers=HEADERS), timeout=120)
+
+
+def catalogue(base, key, game):
+    """Every published record, page by page (100 at most per call)."""
+    mods, offset = [], 0
+    while True:
+        url = "%s/games/%s/mods?api_key=%s&_limit=100&_offset=%d" % (
+            base, game, key, offset)
+        with open_url(url) as response:
+            page = json.load(response)
+        mods.extend(page["data"])
+        offset += page["result_count"]
+        if offset >= page["result_total"] or page["result_count"] == 0:
+            break
+    return mods
+
+
+def ledger_read():
+    try:
+        with open(LEDGER, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (IOError, ValueError):
+        return {}
+
+
+def declared_name(archive):
+    """The mod's internal name: it will name the installed folder."""
+    try:
+        with zipfile.ZipFile(archive) as zf:
+            names = zf.namelist()
+            if "mod.json" in names:
+                path = "mod.json"
+            else:
+                path = next((n for n in names if n.count("/") == 1
+                             and n.endswith("/mod.json")), None)
+                if path is None:
+                    return None
+            meta = json.loads(zf.read(path).decode("utf-8", "replace"))
+    except (zipfile.BadZipFile, ValueError, KeyError):
+        return None
+
+    name = meta.get("name")
+    if not name or "/" in name or "\\" in name or name in (".", ".."):
+        return None
+    return name
+
+
+def archive_name(mod):
+    """Name of the file dropped flat in the mods directory."""
+    published = mod.get("modfile") or {}
+    extension = os.path.splitext(published.get("filename") or "")[1].lower()
+    if extension not in (".zip", ".pyromod"):
+        extension = ".zip"
+    return (mod.get("name_id") or ("mod-%d" % mod["id"])) + extension
+
+
+def job(mod):
+    """What it takes to fetch one mod, extracted from a mod.io record."""
+    published = mod.get("modfile") or {}
+    return {
+        "id": mod["id"],
+        "name": mod["name"],
+        "url": (published.get("download") or {}).get("binary_url"),
+        "archive": archive_name(mod),
+        "md5": (published.get("filehash") or {}).get("md5"),
+        "bytes": published.get("filesize") or 0,
+        "modfile_id": published.get("id"),
+        "version": (published.get("version") or "").strip(),
+        "profile_url": mod.get("profile_url", ""),
+    }
+
+
+# --- lockfile ---------------------------------------------------------------
+
+def lock_read(path):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle).get("mods", {})
+    except (IOError, ValueError):
+        return {}
+
+
+def lock_write(path, mods):
+    """Snapshot of the upstream catalogue, sorted and stable across runs.
+
+    The "folder" (the name declared in mod.json) is only known once the
+    archive has been downloaded: it is carried over from the previous
+    lockfile when present, so that a plain regeneration does not lose it.
+    """
+    previous = lock_read(path)
+    records = {}
+    for mod in mods:
+        ident = str(mod["id"])
+        details = job(mod)
+        record = {
+            "name_id": mod.get("name_id") or "",
+            "name": details["name"],
+            "archive": details["archive"],
+            "version": details["version"],
+            "modfile_id": details["modfile_id"],
+            "date_updated": (mod.get("modfile") or {}).get("date_added"),
+            "bytes": details["bytes"],
+            "md5": details["md5"] or "",
+            "url": details["profile_url"],
+        }
+        # The folder survives regeneration; it never comes from the API.
+        folder = (previous.get(ident) or {}).get("folder")
+        if folder:
+            record["folder"] = folder
+        records[ident] = record
+
+    with open(path, "w", encoding="utf-8") as out:
+        json.dump({"generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ",
+                                                 time.gmtime()),
+                   "mods": records},
+                  out, indent=1, sort_keys=True, ensure_ascii=False)
+        out.write("\n")
+    return records
+
+
+# --- downloading ------------------------------------------------------------
+
+def download(work):
+    """Returns (id, name, status, details); never raises."""
+    if not work["url"]:
+        return (work["id"], work["name"], "no published file", None)
+
+    final = os.path.join(MODS, work["archive"])
+    partial = final + ".partial"
+
+    expected = work["md5"]
+    digest = hashlib.md5()
+    try:
+        with open_url(work["url"]) as response, open(partial, "wb") as out:
+            while True:
+                chunk = response.read(1 << 20)
+                if not chunk:
+                    break
+                digest.update(chunk)
+                out.write(chunk)
+    except Exception as problem:          # network, disk, redirection...
+        if os.path.exists(partial):
+            os.remove(partial)
+        return (work["id"], work["name"],
+                "transfer failed (%s)" % problem, None)
+
+    # A truncated archive would unzip fine and then crash the game:
+    # better to discard it and let a rerun pick it up again.
+    if expected and digest.hexdigest() != expected:
+        os.remove(partial)
+        return (work["id"], work["name"], "wrong MD5 digest", None)
+
+    os.replace(partial, final)
+    return (work["id"], work["name"], "ok",
+            {"archive": work["archive"],
+             "folder": declared_name(final),
+             "bytes": work["bytes"],
+             "modfile_id": work["modfile_id"],
+             "version": work["version"],
+             "url": work["profile_url"]})
+
+
+def to_fetch(mods, known, pinned=None):
+    """What is missing, and why.
+
+    Without a lockfile the criterion stays the original one: the folder is
+    there, skip it. With a lockfile the upstream file id is compared as
+    well, the only way to see that an already installed mod has been
+    updated -- the folder name does not change from one version to the next.
+    """
+    left = []
+    for mod in mods:
+        ident = str(mod["id"])
+        seen = known.get(ident) or {}
+        folder = seen.get("folder")
+        if not (folder and os.path.isdir(os.path.join(MODS, folder))):
+            left.append(mod)
+            continue
+        if pinned is not None:
+            expected = (pinned.get(ident) or {}).get("modfile_id")
+            if expected is not None and seen.get("modfile_id") != expected:
+                left.append(mod)
+    return left
+
+
+def drifts(mods, pinned):
+    """Gaps between what the lockfile promises and what upstream publishes."""
+    live = {str(mod["id"]): mod for mod in mods}
+    republished = [record["name"] for ident, record in sorted(pinned.items())
+                   if ident in live
+                   and (live[ident].get("modfile") or {}).get("id")
+                   != record.get("modfile_id")]
+    gone = sorted(record["name"] for ident, record in pinned.items()
+                  if ident not in live)
+    return live, republished, gone
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(
+        prog="download-mods-modio",
+        description="Download the 0 A.D. mod.io catalogue.")
+    parser.add_argument("--list", action="store_true",
+                        help="show what would be downloaded")
+    parser.add_argument("--lock", metavar="PATH",
+                        help="write the catalogue lockfile and stop")
+    parser.add_argument("--from-lock", metavar="PATH", dest="from_lock",
+                        help="download what the lockfile pins")
+    parser.add_argument("--cfg", metavar="PATH", default=DEFAULT_CFG,
+                        help="default.cfg to read (default: %(default)s)")
+    options = parser.parse_args(argv[1:])
+
+    base, key, game = settings(options.cfg)
+    os.makedirs(MODS, exist_ok=True)
+
+    mods = catalogue(base, key, game)
+    log("catalogue: %d mods" % len(mods))
+
+    if options.lock:
+        records = lock_write(options.lock, mods)
+        log("lockfile written: %s (%d mods)" % (options.lock, len(records)))
+        return 0
+
+    pinned = None
+    if options.from_lock:
+        pinned = lock_read(options.from_lock)
+        if not pinned:
+            raise SystemExit("[modio] empty or unreadable lockfile: %s"
+                             % options.from_lock)
+        # A lockfile is only worth anything if it is honoured: if upstream
+        # has republished since, refuse rather than bring back something
+        # other than what was promised.
+        live, republished, gone = drifts(mods, pinned)
+        if republished or gone:
+            for name in republished:
+                log("DRIFT: \"%s\" was republished since the lockfile" % name)
+            for name in gone:
+                log("DRIFT: \"%s\" disappeared from the catalogue" % name)
+            log("regenerate the lockfile with --lock, then run again")
+            return 2
+        mods = [live[ident] for ident in sorted(pinned) if ident in live]
+
+    known = ledger_read()
+    todo = to_fetch(mods, known, pinned)
+
+    size = sum((m.get("modfile") or {}).get("filesize") or 0 for m in todo)
+    log("to download: %d (%.2f GiB) -- already in place: %d"
+        % (len(todo), size / 1024.0 ** 3, len(mods) - len(todo)))
+
+    if options.list:
+        for mod in todo:
+            weight = ((mod.get("modfile") or {}).get("filesize") or 0)
+            log("  %-45.45s %7.1f MiB" % (mod["name"], weight / 1024.0 ** 2))
+        return 0
+    if not todo:
+        return 0
+
+    done = failures = 0
+    jobs = [job(mod) for mod in todo]
+    with ThreadPoolExecutor(max_workers=PARALLEL) as pool:
+        for ident, name, status, details in pool.map(download, jobs):
+            done += 1
+            if status != "ok":
+                failures += 1
+                log("[%2d/%2d] FAILED %s: %s" % (done, len(todo), name, status))
+                continue
+            details["name"] = name
+            known[str(ident)] = details
+            log("[%2d/%2d] %-45.45s %7.1f MiB"
+                % (done, len(todo), name, details["bytes"] / 1024.0 ** 2))
+
+    with open(LEDGER, "w", encoding="utf-8") as out:
+        json.dump(known, out, indent=1, sort_keys=True, ensure_ascii=False)
+
+    log("finished: %d succeeded, %d failed" % (done - failures, failures))
+    if failures:
+        log("run the command again to pick up what is missing")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

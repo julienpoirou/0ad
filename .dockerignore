@@ -1,0 +1,12 @@
+# Game profile
+profil/
+
+# Host-side tools
+scripts/
+
+# Modio mod files
+mods/.modio.json
+mods/.gardien
+mods/user/
+mods/mod/
+mods/public/

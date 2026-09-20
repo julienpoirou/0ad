@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Compare two mod lockfiles and apply the differences one by one.
+
+"download-mods-modio --lock" snapshots the upstream catalogue. This script
+reads two snapshots and works out what moved, so that the update lands in
+history as Conventional Commits -- one commit per mod, rather than an opaque
+30,000-line JSON bump.
+
+The only reliable update signal is "modfile_id". The mod.io "version"
+fields are not comparable with one another: the same catalogue carries
+"1.3", "13", "0.25.01" and "test". They serve the label, not the decision.
+
+Usage:
+    lock-mods-diff --lock OLD --new NEW --list
+    lock-mods-diff --lock OLD --new NEW --summary
+    lock-mods-diff --lock OLD --new NEW --apply IDENT
+
+    --list      one line per difference: "type<TAB>ident<TAB>name<TAB>header".
+                Nothing on standard output means: nothing moved.
+    --summary   the same differences as a Markdown table, for a PR body.
+    --apply     carries ONE mod over from the new lockfile into the old one,
+                in place. Applied in full, the differences make the old file
+                identical to the new one, timestamp included.
+
+The file written keeps the formatting of "download-mods-modio" (indent of 1,
+sorted keys, unescaped UTF-8, trailing newline): without that, every
+application would produce a diff of the whole file.
+"""
+import argparse
+import io
+import json
+import sys
+
+# commitlint refuses a longer header (header-max-length, .commitlintrc.yml).
+HEADER_WIDTH = 72
+
+
+def read(path):
+    with io.open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def write(path, data):
+    with io.open(path, "w", encoding="utf-8") as out:
+        json.dump(data, out, indent=1, sort_keys=True, ensure_ascii=False)
+        out.write("\n")
+
+
+def version_of(record):
+    """Something to name a version with in a commit message."""
+    version = (record.get("version") or "").strip()
+    if version:
+        return version
+    # Some authors leave the field empty; the upstream file number always
+    # exists and identifies the publication unambiguously.
+    return "revision %s" % record.get("modfile_id")
+
+
+def name_of(record, ident):
+    return record.get("name_id") or record.get("name") or ident
+
+
+def differences(old, new):
+    """(type, ident, name, label) for every mod that moved, sorted."""
+    found = []
+    for ident in sorted(set(old) | set(new), key=int):
+        before, after = old.get(ident), new.get(ident)
+        if before is None:
+            found.append(("add", ident, name_of(after, ident),
+                          version_of(after)))
+        elif after is None:
+            found.append(("remove", ident, name_of(before, ident),
+                          version_of(before)))
+        elif before.get("modfile_id") != after.get("modfile_id"):
+            found.append(("update", ident, name_of(after, ident),
+                          version_of(after)))
+    return found
+
+
+def commit_message(kind, mod_name, version):
+    """The Conventional Commit message matching one difference."""
+    if kind == "add":
+        header = "feat(mods): add %s %s" % (mod_name, version)
+    elif kind == "remove":
+        header = "fix(mods): remove %s" % mod_name
+    else:
+        header = "feat(mods): update %s to %s" % (mod_name, version)
+    if len(header) > HEADER_WIDTH:
+        header = header[:HEADER_WIDTH - 1].rstrip() + "…"
+    return header
+
+
+def summary(found):
+    titles = {"add": "added", "update": "updated", "remove": "removed"}
+    lines = ["| Mod | Change | Version |", "|---|---|---|"]
+    for kind, _, mod_name, version in found:
+        lines.append("| `%s` | %s | %s |"
+                     % (mod_name, titles[kind],
+                        "—" if kind == "remove" else version))
+    return "\n".join(lines)
+
+
+def apply(path, old, new, ident):
+    """Carry a single mod, and the timestamp, from the new lockfile to the old.
+
+    The timestamp follows every time: applied in full, the differences make
+    the file identical to the new lockfile, with no catch-up commit.
+    """
+    if ident in new["mods"]:
+        old["mods"][ident] = new["mods"][ident]
+    else:
+        old["mods"].pop(ident, None)
+    if "generated_at" in new:
+        old["generated_at"] = new["generated_at"]
+    write(path, old)
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(
+        prog="lock-mods-diff",
+        description="Compare two mod lockfiles.")
+    parser.add_argument("--lock", required=True, metavar="PATH",
+                        help="the committed lockfile, modified by --apply")
+    parser.add_argument("--new", required=True, metavar="PATH",
+                        help="the fresh snapshot of the catalogue")
+    action = parser.add_mutually_exclusive_group(required=True)
+    action.add_argument("--list", action="store_true",
+                        help="one difference per line, tab separated")
+    action.add_argument("--summary", action="store_true",
+                        help="the same differences as a Markdown table")
+    action.add_argument("--apply", metavar="IDENT",
+                        help="carry this mod from the new lockfile to the old")
+    options = parser.parse_args(argv[1:])
+
+    # The labels go straight into commit messages: they must not depend on
+    # the runner's locale.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+
+    old, new = read(options.lock), read(options.new)
+
+    if options.apply:
+        apply(options.lock, old, new, options.apply)
+        return 0
+
+    found = differences(old.get("mods", {}), new.get("mods", {}))
+    if not found:
+        return 0
+
+    if options.summary:
+        print(summary(found))
+        return 0
+
+    for kind, ident, mod_name, version in found:
+        print("\t".join((kind, ident, mod_name,
+                         commit_message(kind, mod_name, version))))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
