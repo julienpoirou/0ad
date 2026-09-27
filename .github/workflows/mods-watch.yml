@@ -20,6 +20,8 @@ jobs:
       contents: write
       packages: read
       pull-requests: write
+    env:
+      MODS_0AD: ${{ github.workspace }}/mods
     steps:
       - uses: actions/checkout@v4
 
