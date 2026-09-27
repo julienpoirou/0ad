@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-09-06T11:11:08Z",
+ "generated_at": "2026-09-27T17:43:05Z",
  "mods": {
   "109": {
    "archive": "siege.zip",
@@ -267,15 +267,15 @@
   },
   "2144305": {
    "archive": "community-mod.zip",
-   "bytes": 2992991,
-   "date_updated": 1750364872,
+   "bytes": 3107260,
+   "date_updated": 1789880405,
    "folder": "community-mod",
-   "md5": "7230532c5473ae513a692041ea460f47",
-   "modfile_id": 6481922,
+   "md5": "0dccd30a3a5a307cbd7d9123330cac95",
+   "modfile_id": 8232513,
    "name": "0 A.D. Community Mod",
    "name_id": "community-mod",
    "url": "https://mod.io/g/0ad/m/community-mod",
-   "version": "0.27.2"
+   "version": "0.28.2"
   },
   "2177588": {
    "archive": "gods-eye-mod.zip",
