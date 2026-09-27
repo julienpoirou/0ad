@@ -711,15 +711,15 @@
   },
   "5099439": {
    "archive": "classical-warfare-aea.zip",
-   "bytes": 36904416,
-   "date_updated": 1788629543,
+   "bytes": 36904125,
+   "date_updated": 1788624629,
    "folder": "classical-warfare-aea",
-   "md5": "d77d120e3e72ad4e5443ca2051984123",
-   "modfile_id": 8179245,
+   "md5": "22408a43b5e97ee7452f35a98fdd5e02",
+   "modfile_id": 8178884,
    "name": "Classical Warfare AEA",
    "name_id": "classical-warfare-aea",
    "url": "https://mod.io/g/0ad/m/classical-warfare-aea",
-   "version": "test"
+   "version": "0.28.1"
   },
   "521": {
    "archive": "special-builders.zip",
