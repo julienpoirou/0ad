@@ -891,15 +891,15 @@
   },
   "5981782": {
    "archive": "quicklobby.zip",
-   "bytes": 7964,
-   "date_updated": 1787686558,
+   "bytes": 5324,
+   "date_updated": 1783257414,
    "folder": "quicklobby-0.28.2",
-   "md5": "ee79ccb62a4500f3639c62cff8ef3fd8",
-   "modfile_id": 8138106,
+   "md5": "4ad161a63014fc734eb87ef55d299273",
+   "modfile_id": 7929127,
    "name": "Quick Lobby",
    "name_id": "quicklobby",
    "url": "https://mod.io/g/0ad/m/quicklobby",
-   "version": "0.28.2"
+   "version": "0.28.1"
   },
   "60": {
    "archive": "zh-tw-lang.zip",
