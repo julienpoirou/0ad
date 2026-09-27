@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-09-06T11:11:08Z",
+ "generated_at": "2026-09-27T17:43:05Z",
  "mods": {
   "109": {
    "archive": "siege.zip",
@@ -267,15 +267,15 @@
   },
   "2144305": {
    "archive": "community-mod.zip",
-   "bytes": 2992991,
-   "date_updated": 1750364872,
+   "bytes": 3107260,
+   "date_updated": 1789880405,
    "folder": "community-mod",
-   "md5": "7230532c5473ae513a692041ea460f47",
-   "modfile_id": 6481922,
+   "md5": "0dccd30a3a5a307cbd7d9123330cac95",
+   "modfile_id": 8232513,
    "name": "0 A.D. Community Mod",
    "name_id": "community-mod",
    "url": "https://mod.io/g/0ad/m/community-mod",
-   "version": "0.27.2"
+   "version": "0.28.2"
   },
   "2177588": {
    "archive": "gods-eye-mod.zip",
@@ -711,15 +711,15 @@
   },
   "5099439": {
    "archive": "classical-warfare-aea.zip",
-   "bytes": 36904416,
-   "date_updated": 1788629543,
+   "bytes": 36904125,
+   "date_updated": 1788624629,
    "folder": "classical-warfare-aea",
-   "md5": "d77d120e3e72ad4e5443ca2051984123",
-   "modfile_id": 8179245,
+   "md5": "22408a43b5e97ee7452f35a98fdd5e02",
+   "modfile_id": 8178884,
    "name": "Classical Warfare AEA",
    "name_id": "classical-warfare-aea",
    "url": "https://mod.io/g/0ad/m/classical-warfare-aea",
-   "version": "test"
+   "version": "0.28.1"
   },
   "521": {
    "archive": "special-builders.zip",
@@ -867,11 +867,11 @@
   },
   "5939923": {
    "archive": "civilization.zip",
-   "bytes": 689931825,
-   "date_updated": 1788156912,
+   "bytes": 689936817,
+   "date_updated": 1789464821,
    "folder": "0ad_civilization_r28",
-   "md5": "2cc5b3929c9479fee937fff99773382f",
-   "modfile_id": 8159927,
+   "md5": "06981ce371af238a84f1c1407cacfb6a",
+   "modfile_id": 8216664,
    "name": "Civilization",
    "name_id": "civilization",
    "url": "https://mod.io/g/0ad/m/civilization",
@@ -891,15 +891,15 @@
   },
   "5981782": {
    "archive": "quicklobby.zip",
-   "bytes": 7964,
-   "date_updated": 1787686558,
+   "bytes": 5324,
+   "date_updated": 1783257414,
    "folder": "quicklobby-0.28.2",
-   "md5": "ee79ccb62a4500f3639c62cff8ef3fd8",
-   "modfile_id": 8138106,
+   "md5": "4ad161a63014fc734eb87ef55d299273",
+   "modfile_id": 7929127,
    "name": "Quick Lobby",
    "name_id": "quicklobby",
    "url": "https://mod.io/g/0ad/m/quicklobby",
-   "version": "0.28.2"
+   "version": "0.28.1"
   },
   "60": {
    "archive": "zh-tw-lang.zip",
@@ -915,15 +915,15 @@
   },
   "6029406": {
    "archive": "game-templates.zip",
-   "bytes": 25520,
-   "date_updated": 1787686490,
+   "bytes": 23216,
+   "date_updated": 1783257481,
    "folder": "gametemplates-0.28.3",
-   "md5": "d58b65cecc16d2e73ec50c3d9ef77129",
-   "modfile_id": 8138104,
+   "md5": "e8ae9604797071019595337735d1958e",
+   "modfile_id": 7929129,
    "name": "Game Templates",
    "name_id": "game-templates",
    "url": "https://mod.io/g/0ad/m/game-templates",
-   "version": "0.28.3"
+   "version": "0.28.2"
   },
   "622374": {
    "archive": "grapejuice.zip",
