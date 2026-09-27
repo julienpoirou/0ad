@@ -357,6 +357,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: assets
+          pattern: assets-*
           merge-multiple: true
 
       - name: Attach
