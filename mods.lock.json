@@ -915,15 +915,15 @@
   },
   "6029406": {
    "archive": "game-templates.zip",
-   "bytes": 25520,
-   "date_updated": 1787686490,
+   "bytes": 23216,
+   "date_updated": 1783257481,
    "folder": "gametemplates-0.28.3",
-   "md5": "d58b65cecc16d2e73ec50c3d9ef77129",
-   "modfile_id": 8138104,
+   "md5": "e8ae9604797071019595337735d1958e",
+   "modfile_id": 7929129,
    "name": "Game Templates",
    "name_id": "game-templates",
    "url": "https://mod.io/g/0ad/m/game-templates",
-   "version": "0.28.3"
+   "version": "0.28.2"
   },
   "622374": {
    "archive": "grapejuice.zip",
