@@ -87,8 +87,12 @@ channel. The Release carries what identifies that build instead:
 
 - **GitHub Registry**: nothing to configure, `GITHUB_TOKEN` with
   `packages: write` is enough.
-- **Docker Hub**: `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`. Publish skips
-  Docker Hub entirely when either is missing, GHCR still gets both variants.
+- **Docker Hub**: the repository *variable* `DOCKERHUB_USERNAME` and the
+  *secret* `DOCKERHUB_TOKEN`. The username is a variable, not a secret: stored
+  as a secret its value (the owner name) is masked out of every job output that
+  embeds the image name, which strips the registry prefix and leaves
+  `docker/metadata-action` producing bare tags. Publish skips Docker Hub
+  entirely when either is missing, GHCR still gets both variants.
 - **mod.io**: no secret. The API key is the public one shipped in
   `/usr/share/games/0ad/config/default.cfg`, extracted from the image at build
   time — the same channel the game's own downloader uses.
