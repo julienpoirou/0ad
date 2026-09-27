@@ -61,7 +61,7 @@ jobs:
 
           images="ghcr.io/${GITHUB_REPOSITORY}"
           if [ "$HAS_DOCKERHUB" = "true" ]; then
-            images="$(printf '%s\ndocker.io/%s/0ad' "$images" "$GITHUB_REPOSITORY_OWNER")"
+            images="${images},docker.io/${GITHUB_REPOSITORY_OWNER}/0ad"
           else
             echo "::warning::DOCKERHUB_USERNAME/DOCKERHUB_TOKEN absent, GHCR publication only."
           fi
@@ -72,9 +72,7 @@ jobs:
             echo "date=$date"
             echo "built=$built"
             echo "dockerhub=$HAS_DOCKERHUB"
-            echo "images<<END"
-            echo "$images"
-            echo "END"
+            echo "images=$images"
           } >> "$GITHUB_OUTPUT"
 
           {
@@ -102,8 +100,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GH_PACKAGES_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
         if: needs.version.outputs.dockerhub == 'true'
@@ -214,8 +212,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GH_PACKAGES_TOKEN }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract default.cfg from the published image
         env:
