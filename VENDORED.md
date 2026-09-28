@@ -25,7 +25,7 @@ excluded from the image by [.dockerignore](.dockerignore).
 | `0-AD-balancing/0-AD-balancing.zip` | Tweaks the resource types | 1.3 | — | `7a3a6cf27b5d725668e3318d5cebc75f009e35ab41e08897c6f89bae221e84db` |
 | `0ad-Zapotec/0ad-Zapotec.zip` | 0ad-Zapotec | 0.27.1 | — | `7ea90a77334c64341d42b58e8a32651325a9d3be8ce92558725278b6d96f2a5e` |
 | `0ad_Better_UI_A26/0ad_Better_UI_A26.zip` | 0ad_Better_UI_A26 | 0.26.0 | — | `1862c5a294509b51cd15a7e128750a3a7daf8f83ca0a55c8d1a1d08d85cf2a05` |
-| `0ad_civilization_r28/0ad_civilization_r28.zip` | [0 A.D. Civilization Release 28](https://mod.io/g/0ad/m/civilization) | 0.28.0 | CC-BY-SA-3.0 + GPL-2.0 + GPL-3.0 | `7525d27ba559c7ae1e8c4ca2d3b26256759c727df11ee73ac9fd7413a25c2ccb` |
+| `0ad_civilization_r28/0ad_civilization_r28.zip` | [0 A.D. Civilization Release 28](https://mod.io/g/0ad/m/civilization) | 0.28.0 | CC-BY-SA-3.0 + GPL-2.0 + GPL-3.0 | `b09dca3f384f5de17ae6de97006ca1bf0bb38d02498b20f91b9b01829e1ce858` |
 | `0ad_delenda_est_r28/0ad_delenda_est_r28.zip` | [0 A.D. Delenda Est Release 28](https://github.com/JustusAvramenko/delenda_est) | 0.28.0 | CC-BY-SA-3.0 + GPL-3.0 | `fbfbc7f33cfc879f0c9be717cdabd91305dd90882321e86625404f6b65b51416` |
 | `10ad/10ad.zip` | [10 A.D.](https://github.com/0ad-matters/10ad) | 0.28.0 | LGPL-2.1 | `fd277388655e6649ff8bb4075dd241cde5d0a83ab13dd2b686c74208982df3d3` |
 | `3-points/3-points.zip` | [0 A.D. 3 Points Map](https://git.eurobytes.eu/imri/3_points) | 1.0.0 | — | `245e8de415e44ca66009c9155f69ebff10859c5079727c290d637018f54a7556` |
@@ -49,9 +49,9 @@ excluded from the image by [.dockerignore](.dockerignore).
 | `castle-blood-0ad/castle-blood-0ad.zip` | [Castle Blood 0AD](https://0ad.mod.io/castle-blood-0ad) | 0.0.3 | — | `f7868e6281b7d16935fc9fb0ed638d900b5bf8d1d10a48b51b82c5671c1d12ea` |
 | `circle-of-bosses/circle-of-bosses.zip` | [0 A.D. C.O.B. map](https://git.eurobytes.eu/imri/Circle_Of_Bosses) | 1.0.0 | — | `d399cd2c3e2296eb037fb50661b7d262234b35173f21a7cc59eaa079ea6ba686` |
 | `city-building-mod/city-building-mod.zip` | City Building Mod - Aura | 0.1.3 | MIT | `3529d244c18c1c6a05ef04693f29aef8f55ff51b69fb0aec8020719bde320aba` |
-| `classical-warfare-aea/classical-warfare-aea.zip` | [classical-warfare-aea](https://jeff-web-sketch.github.io/ClasicWareFareAEASite/) | 0.28.9 | — | `593ba29c999c1fd33f862f051e5a0f9f99f1c0e6c201b59a91e01a5f381250d7` |
+| `classical-warfare-aea/classical-warfare-aea.zip` | [classical-warfare-aea](https://jeff-web-sketch.github.io/ClasicWareFareAEASite/) | 0.28.1 | — | `2cc21ebbcf272ad0890e25bf511b9d50351f443dda5078d4705b89ef4839c430` |
 | `community-maps-2/community-maps-2.zip` | [Community Maps 2](https://github.com/0ad-matters/community-maps-2) | 0.28.0 | GPL-2.0 | `d380a9d314cc31b60b4ea1fd5dd41c94a9fa63c9d087f55b3128f65c84e0556d` |
-| `community-mod/community-mod.zip` | [0 A.D. Community Mod](https://gitea.wildfiregames.com/0ad/0ad-community-mod) | 0.27.2 | — | `1be20f24efb5f42c1b5c677d3f65b1edd7ff5800a78d0729db920c3de4044a51` |
+| `community-mod/community-mod.zip` | [0 A.D. Community Mod](https://gitea.wildfiregames.com/0ad/0ad-community-mod) | 0.28.2 | — | `47f45157bd761266fcb0fddd7682f18ee6b9dd5a7c6cf70ae00042979e666aeb` |
 | `community_maps/community_maps.zip` | [Community Maps](https://github.com/cwrtl/community_maps) | 0.0.7 | — | `a0a8efa7f9507c21bfecbf2853ccd8d9f6c52d0c922c71109bf574b7fb0a7a68` |
 | `deathmatch_gamemode/deathmatch_gamemode.zip` | Death Match Game Mode | 0.28.0 | MIT | `7025c0ed2e316d5cd63dd998f99b89fb038d645b9d1a5d4183d9e86ac399ea12` |
 | `earth-maps/earth-maps.zip` | [Continental Maps for 0 A.D.](https://github.com/Baelish03/0ad-maps) | 0.28.3 | — | `68e06d982b33a3eb5a83a8d266e21b0bb72499aea641269c0312e36c6adc8b0e` |
@@ -59,7 +59,7 @@ excluded from the image by [.dockerignore](.dockerignore).
 | `feldmap/feldmap.zip` | [New random maps with balanced resources](https://wildfiregames.com/forum/topic/53880-feldmap/) | 3.0.1 | — | `a531d1eda468e90415974f8f56fa285294e6ed33a66d1255a464394e179ef47c` |
 | `flare/flare.zip` | [Flare feature](https://play0ad.com) | 0.1 | — | `78c0d8daed27fbc7976507a12781a67936a959c826b4ef03c888a3a6c368f556` |
 | `Formation-Fighting-Mod/Formation-Fighting-Mod.zip` | [0 A.D. Empires Ascendant](https://0ad.mod.io/formation-fighting-mod) | 2.9 | — | `4daf564013b1380ba3dbd967b3a600f12f909280c29009793c62cdc26fc6bff8` |
-| `gametemplates-0.28.3/` | [Game Templates](https://gitea.wildfiregames.com/manowar/0ad) | 0.28 | — | `4cc0fc92d8102e7cc7242b094e803655c0c491bce497decfa9ccf7599977d565` |
+| `gametemplates/gametemplates.zip` | [Game Templates](https://gitea.wildfiregames.com/manowar/0ad) | 0.28 | — | `c37bd44123a50f90e4524231d8024ec79f137130c32a9c017a529c517c307632` |
 | `gods-eye-mod/gods-eye-mod.zip` | [God's Eye](https://github.com/rossenburgg/godseye) | 0.0.8 | CC-BY-SA-3.0 † | `6d54be2d7efea352632b7f6870010bba6e9dc53530801419aa752b262d617659` |
 | `grapejuice/grapejuice.zip` | gameplay overhaul, total rebalance, new skirmish randomiz… | 13 | GPL-2.0 | `6bbaef90c03a69ed7c3dae55b02844268fed9cf039fc3dcc06fb8184eea642de` |
 | `Hannibal ad portas/Hannibal ad portas.zip` | A mod aiming to rebalance gameplay for competitive 1v1s. | 0.3.0 | — | `ff4f15d6d0a1e3e3424bbef14fe4e2d44254f9e862f89fbcd98d599ed95f79f2` |
@@ -87,7 +87,7 @@ excluded from the image by [.dockerignore](.dockerignore).
 | `NoViolenceMod/NoViolenceMod.zip` | [No violence mod](https://wildfiregames.com/forum/index.php?/topic/27716-single-player-map/) | 4.0 | — | `8cc570bdd976177c369e899a478d2b2d3127c4e56fd6e60f02ec6304a2f3b6ce` |
 | `pirate_raids/pirate_raids.zip` | [Pirate Raids](http://tobydustin.com) | 0.1 | — | `306dcdca9b749c8bf6a3f032c829821a0a3eb0ff4a28a18ce2b05effd2662a31` |
 | `ponies-ascendant/ponies-ascendant.zip` | [Ponies Ascendant](https://github.com/0ADMods/ponies_ascendant) | 0.28.2 | — | `ed78f7ae72f31fc6394ca11822face2f3b56918516ea8609006eb331bb70754c` |
-| `quicklobby-0.28.2/` | Quick Lobby | 0.0.1 | — | `2f0825ae626bb8f60b2096ce008e468b1a79002b7ba11afcc0e9b2af8d8f9a56` |
+| `quicklobby/quicklobby.zip` | Quick Lobby | 0.0.1 | — | `1fc91a6a32b3966ab4abc268c1b0df1449e6ecf32c820efe36378120668006da` |
 | `r28-bot/r28-bot.zip` | [R28 Bot](https://wildfiregames.com/forum/topic/140620-mod-r28-bot-bot-for-the-release-version-of-the-game-with-advanced-settings/) | 0.2.0 | GPL-2.0 | `61fe8bf85f759c3963c70c8c492783107f7a5602e0da0c87b2c6857f183da587` |
 | `random_civ_groups/random_civ_groups.zip` | [Random Civ Selection Groups](https://github.com/hopeless-ponderer/random_civ_groups_0ad) | 0.25.01 | GPL-3.0 | `3abe527bbff558aed9ef970302141949251ed9bcc73b447a0a50e3fee20875c1` |
 | `referenceSuitePlus/referenceSuitePlus.zip` | [Reference Suite Plus](https://github.com/s0600204/0ad) | 0.0.3 | — | `4e78db1eef2b495c3d3ac00f3ed840a0823f2e14b6f051c1cf4a14d11aa1ef2a` |
