@@ -63,7 +63,7 @@ EXPOSE 20595/udp
 
 # Liveness/readiness probe for orchestrators (Compose, Kubernetes, Swarm)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:3000/ || exit 1
+    CMD ["curl", "-fsS", "http://127.0.0.1:3000/"]
 
 # Variant with the full mod collection
 FROM base AS mods
