@@ -24,9 +24,10 @@ RUN apt-get update \
     && add-apt-repository -y ppa:wfg/0ad \
     && apt-get update \
     && apt-get install -y --no-install-recommends 0ad libgl1-mesa-dri mesa-utils \
-    && apt-get purge -y --auto-remove software-properties-common gpg-agent linux-libc-dev libc6-dev libc-dev-bin \
+    && apt-get purge -y --auto-remove software-properties-common gpg-agent linux-libc-dev libc6-dev libc-dev-bin python3-pip-whl \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+    && rm -f /usr/libexec/docker/cli-plugins/docker-buildx
 
 # Selkies image currently omits this runtime dependency; the other pins close
 # the remaining Trivy findings against /lsiopy's venv:
