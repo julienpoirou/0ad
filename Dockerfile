@@ -28,9 +28,16 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Selkies image currently omits this runtime dependency; Pillow pinned to the
-# first release without CVE-2026-54058/54059/54060/55379/55380/59197/59199/59200/59204/59205
-RUN /lsiopy/bin/python3 -m pip install --no-cache-dir --upgrade distro==1.9.0 Pillow==12.3.0
+# Selkies image currently omits this runtime dependency; the other pins close
+# the remaining Trivy findings against /lsiopy's venv:
+# Pillow: CVE-2026-54058/54059/54060/55379/55380/59197/59199/59200/59204/59205
+# cryptography: CVE-2026-69247 (HIGH, Bleichenbacher oracle in pkcs7_decrypt_*)
+# aiohttp: CVE-2026-69244 (HIGH), CVE-2026-59881, CVE-2026-69243
+# pip: CVE-2026-13346/8643/6357/3219/1703, CVE-2025-8869
+# setuptools: CVE-2026-59890
+RUN /lsiopy/bin/python3 -m pip install --no-cache-dir --upgrade \
+    distro==1.9.0 Pillow==12.3.0 cryptography==50.0.2 aiohttp==3.14.3 \
+    pip==26.2.1 setuptools==83.0.0
 
 # Open the 0 A.D. window fullscreen rather than maximised
 RUN grep -q '<windowRule identifier="\*"><action name="Maximize" /></windowRule>' /defaults/labwc.xml \
