@@ -17,17 +17,20 @@ LABEL org.opencontainers.image.title="0ad" \
       org.opencontainers.image.base.name="linuxserver/baseimage-selkies:ubuntunoble"
 
 # Installing 0ad via the official Wildfire Games repository
+# hadolint ignore=DL3005
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends ca-certificates gpg-agent software-properties-common \
     && add-apt-repository -y ppa:wfg/0ad \
     && apt-get update \
     && apt-get install -y --no-install-recommends 0ad libgl1-mesa-dri mesa-utils \
-    && apt-get purge -y --auto-remove software-properties-common gpg-agent \
+    && apt-get purge -y --auto-remove software-properties-common gpg-agent linux-libc-dev libc6-dev libc-dev-bin \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Selkies image currently omits this runtime dependency
-RUN /lsiopy/bin/python3 -m pip install --no-cache-dir distro==1.9.0
+# Selkies image currently omits this runtime dependency; Pillow pinned to the
+# first release without CVE-2026-54058/54059/54060/55379/55380/59197/59199/59200/59204/59205
+RUN /lsiopy/bin/python3 -m pip install --no-cache-dir --upgrade distro==1.9.0 Pillow==12.3.0
 
 # Open the 0 A.D. window fullscreen rather than maximised
 RUN grep -q '<windowRule identifier="\*"><action name="Maximize" /></windowRule>' /defaults/labwc.xml \
@@ -57,6 +60,10 @@ EXPOSE 3000 3001
 
 # 0 A.D. multiplayer
 EXPOSE 20595/udp
+
+# Liveness/readiness probe for orchestrators (Compose, Kubernetes, Swarm)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:3000/ || exit 1
 
 # Variant with the full mod collection
 FROM base AS mods
