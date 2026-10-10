@@ -112,7 +112,7 @@ jobs:
 
       - name: Tags and labels
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ needs.version.outputs.images }}
           flavor: latest=false
@@ -303,7 +303,7 @@ jobs:
 
       - name: Tags and labels
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ needs.version.outputs.images }}
           flavor: latest=false
