@@ -40,7 +40,7 @@ jobs:
             root/custom-cont-init.d/20-mods-0ad \
             root/defaults/autostart
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
