@@ -1,5 +1,5 @@
 {
- "generated_at": "2026-09-27T17:43:05Z",
+ "generated_at": "2026-10-31T10:44:23Z",
  "mods": {
   "109": {
    "archive": "siege.zip",
@@ -867,11 +867,11 @@
   },
   "5939923": {
    "archive": "civilization.zip",
-   "bytes": 689936817,
-   "date_updated": 1789464821,
+   "bytes": 693927458,
+   "date_updated": 1791889267,
    "folder": "0ad_civilization_r28",
-   "md5": "06981ce371af238a84f1c1407cacfb6a",
-   "modfile_id": 8216664,
+   "md5": "f10c63f5f34e13b7700bb8d9147f5aaa",
+   "modfile_id": 8321283,
    "name": "Civilization",
    "name_id": "civilization",
    "url": "https://mod.io/g/0ad/m/civilization",
