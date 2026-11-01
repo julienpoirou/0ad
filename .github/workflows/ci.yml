@@ -51,7 +51,12 @@ jobs:
             scripts/download-mods-modio \
             scripts/normalize-mods-0ad \
             scripts/generate-vendored \
-            scripts/lock-mods-diff
+            scripts/lock-mods-diff \
+            scripts/filter-mods-compatibility \
+            tests/test_filter_mods_compatibility.py
+
+      - name: Mod compatibility tests
+        run: python3 -m unittest discover -s tests -v
 
       - name: Install Trivy
         run: |

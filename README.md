@@ -31,11 +31,12 @@ The game will be available at: http://localhost:8080/.
 ### Two variants
 
 The commands below pull `latest`, which is **the game alone**, about 3 GiB.
-Append `-mods` to any tag to get the same image plus the 89 mods listed in
-[VENDORED.md](VENDORED.md), around 9 GiB, and worth it only if you want the
-collection preinstalled. Everything else is byte-for-byte identical: the two
-variants are built from the same Dockerfile stage, the mods are a single extra
-layer on top.
+Append `-mods` to any tag to get the same image plus the mods compatible with
+the bundled game version, listed in [VENDORED.md](VENDORED.md), around 8 GiB.
+Everything else is byte-for-byte identical: the two variants are built from the
+same Dockerfile stage, the mods are a single extra layer on top. Selection uses
+the `0ad` dependencies declared by each `mod.json` and the engine's own version
+comparison rules; incompatible mods are excluded from the image layer.
 
 | Tag | Contents | When to use it |
 |---|---|---|

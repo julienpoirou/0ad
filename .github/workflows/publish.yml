@@ -8,6 +8,10 @@ on:
       - 'root/**'
       - 'mods.lock.json'
       - 'GAME_VERSION'
+      - '.github/workflows/publish.yml'
+      - 'scripts/download-mods-modio'
+      - 'scripts/normalize-mods-0ad'
+      - 'scripts/filter-mods-compatibility'
   release:
     types: [ published ]
   schedule:
@@ -182,7 +186,7 @@ jobs:
           readme-filepath: ./README.md
 
   mods:
-    name: Image with the full mod collection
+    name: Image with the compatible mod collection
     needs: [ version, game ]
     runs-on: ubuntu-latest
     permissions:
@@ -238,14 +242,22 @@ jobs:
           set -euo pipefail
           python3 scripts/normalize-mods-0ad
 
-      - name: Check the collection against the lockfile
+      - name: Keep mods compatible with the game
+        run: |
+          set -euo pipefail
+          python3 scripts/filter-mods-compatibility \
+            --game-version "${{ needs.version.outputs.version }}" \
+            --report mods-compatibility.json
+
+      - name: Check the collection against the compatibility report
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json, os, sys
 
           mods = os.environ["MODS_0AD"]
-          expected = json.load(open("mods.lock.json", encoding="utf-8"))["mods"]
+          report = json.load(open("mods-compatibility.json", encoding="utf-8"))
+          expected = sorted(entry["folder"] for entry in report["compatible"])
           presents = sorted(
               n for n in os.listdir(mods)
               if os.path.isdir(os.path.join(mods, n))
@@ -255,10 +267,10 @@ jobs:
                             if not os.path.isfile(os.path.join(mods, n, "mod.json"))]
           if no_manifesto:
               sys.exit("without mod.json: %s" % no_manifesto)
-          if len(presents) != len(expected):
-              sys.exit("%d installed mods, %d pinned by the lock"
-                       % (len(presents), len(expected)))
-          print("%d mods that are compatible with the lock" % len(presents))
+          if presents != expected:
+              sys.exit("installed collection does not match the compatibility report")
+          print("%d mods compatible with 0 A.D. %s"
+                % (len(presents), report["game_version"]))
           PY
 
       - name: Refresh VENDORED.md
@@ -338,6 +350,7 @@ jobs:
           mkdir -p assets
           echo "with mods: $REF" > assets/digests-mods.txt
           cp mods.lock.json assets/mods.lock.json
+          cp mods-compatibility.json assets/mods-compatibility.json
 
       - uses: actions/upload-artifact@v7
         with:
@@ -374,4 +387,5 @@ jobs:
             assets/sbom.spdx.json \
             assets/trivy-image.txt \
             assets/mods.lock.json \
+            assets/mods-compatibility.json \
             --clobber
