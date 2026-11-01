@@ -73,10 +73,21 @@ EXPOSE 20595/udp
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD ["curl", "-fsS", "http://127.0.0.1:3000/"]
 
-# Variant with the full mod collection
-FROM base AS mods
+# Prepare the collection separately so rejected mods never reach the final layer.
+FROM base AS mods-collection
 
 COPY mods/ /usr/share/games/0ad/mods/
+COPY scripts/filter-mods-compatibility /tmp/filter-mods-compatibility
+COPY GAME_VERSION /tmp/GAME_VERSION
+RUN /lsiopy/bin/python3 /tmp/filter-mods-compatibility \
+    --mods /usr/share/games/0ad/mods \
+    --game-version "$(awk 'NR==1{print $1}' /tmp/GAME_VERSION)" \
+    && rm -f /tmp/filter-mods-compatibility /tmp/GAME_VERSION
+
+# Variant with the mod collection compatible with this game version
+FROM base AS mods
+
+COPY --from=mods-collection /usr/share/games/0ad/mods/ /usr/share/games/0ad/mods/
 
 # Mod-free variant
 FROM base AS game

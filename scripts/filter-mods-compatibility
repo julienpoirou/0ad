@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""Keep only mods whose 0 A.D. dependency accepts the installed game version.
+
+This mirrors Mod::CheckForIncompatibleMods and Mod::CompareVersionStrings
+from the 0 A.D. engine. Dependencies on other mods are left to the engine:
+this filter only answers whether a mod supports the bundled game version.
+"""
+import argparse
+import json
+import os
+import re
+import shutil
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODS = os.environ.get("MODS_0AD", os.path.join(ROOT, "mods"))
+GAME_VERSION = os.path.join(ROOT, "GAME_VERSION")
+NOT_MODS = {"mod", "public", "user"}
+OPERATORS = ("<=", ">=", "=", "<", ">")
+
+
+def log(message):
+    print("[mods] " + message, flush=True)
+
+
+def game_version():
+    with open(GAME_VERSION, encoding="utf-8") as handle:
+        return handle.readline().split()[0]
+
+
+def version_parts(value):
+    """Numeric components, with the same suffix handling as the engine."""
+    base = re.split(r"[-,_]", value, maxsplit=1)[0]
+    parts = []
+    for component in base.split("."):
+        number = re.match(r"\d+", component)
+        parts.append(int(number.group(0)) if number else 0)
+    return parts
+
+
+def compare_versions(version, operator, required):
+    """Reproduce 0 A.D.'s segment-wise version comparison."""
+    current_parts = version_parts(version)
+    required_parts = version_parts(required)
+    equal = "=" in operator
+    less = "<" in operator
+    greater = ">" in operator
+
+    for current, wanted in zip(current_parts, required_parts):
+        difference = current - wanted
+        if (greater and difference > 0) or (less and difference < 0):
+            return True
+        if ((greater and difference < 0) or (less and difference > 0)
+                or (equal and difference)):
+            return False
+
+    if len(current_parts) == len(required_parts):
+        return equal
+    if len(current_parts) < len(required_parts):
+        return less
+    return greater
+
+
+def incompatibility(meta, version):
+    """Return the rejected 0ad dependency, or None when compatible."""
+    dependencies = meta.get("dependencies", [])
+    if not isinstance(dependencies, list):
+        return "dependencies is not a list"
+
+    for dependency in dependencies:
+        if not isinstance(dependency, str):
+            return "dependency is not a string"
+        for operator in OPERATORS:
+            position = dependency.find(operator)
+            if position < 0:
+                continue
+            if dependency[:position] != "0ad":
+                break
+            required = dependency[position + len(operator):]
+            if not compare_versions(version, operator, required):
+                return "requires " + dependency
+            break
+    return None
+
+
+def manifest(path):
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+    if not isinstance(data, dict):
+        raise ValueError("mod.json is not an object")
+    return data
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(
+        prog="filter-mods-compatibility",
+        description="Remove mods incompatible with the bundled 0 A.D. version.")
+    parser.add_argument("--mods", default=MODS,
+                        help="collection to filter (default: %(default)s)")
+    parser.add_argument("--game-version",
+                        help="game version (default: first word of GAME_VERSION)")
+    parser.add_argument("--report", help="write the selection as JSON")
+    options = parser.parse_args(argv[1:])
+    version = options.game_version or game_version()
+
+    if not os.path.isdir(options.mods):
+        raise SystemExit("[mods] mods directory not found: " + options.mods)
+
+    compatible, excluded = [], []
+    for folder in sorted(os.listdir(options.mods)):
+        path = os.path.join(options.mods, folder)
+        if (folder.startswith(".") or folder in NOT_MODS
+                or not os.path.isdir(path)):
+            continue
+        try:
+            meta = manifest(os.path.join(path, "mod.json"))
+            problem = incompatibility(meta, version)
+        except (IOError, ValueError) as error:
+            meta = {}
+            problem = "unreadable mod.json (%s)" % error
+
+        record = {
+            "folder": folder,
+            "name": str(meta.get("label") or meta.get("name") or folder),
+            "dependencies": meta.get("dependencies", []),
+        }
+        if problem is None:
+            compatible.append(record)
+            continue
+        record["reason"] = problem
+        excluded.append(record)
+        shutil.rmtree(path)
+        log('excluded "%s": %s' % (folder, problem))
+
+    if options.report:
+        with open(options.report, "w", encoding="utf-8") as out:
+            json.dump({"game_version": version,
+                       "compatible": compatible, "excluded": excluded},
+                      out, indent=1, sort_keys=True, ensure_ascii=False)
+            out.write("\n")
+    log("0 A.D. %s: %d compatible, %d excluded"
+        % (version, len(compatible), len(excluded)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

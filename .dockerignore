@@ -1,8 +1,9 @@
 # Game profile
 profil/
 
-# Host-side tools
-scripts/
+# Host-side tools, except the compatibility filter used by the mods stage
+scripts/*
+!scripts/filter-mods-compatibility
 
 # Modio mod files
 mods/.modio.json
