@@ -78,7 +78,7 @@ jobs:
 
       - name: Open a pull request
         if: steps.upstream.outputs.new == 'true'
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: chore/upstream-${{ steps.upstream.outputs.upstream }}
